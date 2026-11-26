@@ -15,8 +15,9 @@ Patch set for [meow-memory](https://github.com/Phant0Meow/dsh-meow-memory), appl
 | 1 | `hitTopK` 默认值 2 → 4（四处：`CONFIG_DEFAULTS`、`DEFAULT_OPTS`、zod schema 的 `.default()`、`resolveConfig` 的 `??` 兜底） | 每条用户消息按关键词召回的条目上限，2 条太少——一轮对话里往往有三四个主题同时被唤起，2 条会漏掉重要的 |
 | 2 | `hitQuery` 的召回池加入 `db.list("project")` | 原本 project 层**完全不在**每消息唤回的池子里，只能靠首轮全量注入。关掉全量之后，项目记忆一条也进不来 |
 | 3 | `currentProject` 的过滤条件：`!== null && ...` 改为 `=== null \|\| ...` | 没设当前项目时，原本只召回「全局」条目，于是**项目记忆永远进不来**——这是「看起来必须开全量注入」的真正原因 |
+| 4 | `hitQuery` 返回值带出 `source_session`；`buildHitInjection` 里 project 层最多注入 1 条、topic 若来自别的会话行尾标注来源 | 对应上游 issue #125：topic 是 project 作用域又常带「进行中」状态，别的会话写的会被当成当前任务接着做；project 条目平均 349 字、最长 716，命中三四条会挤爆本轮上下文 |
 
-三条合起来的目的是同一件事：**让项目记忆在设了项目、没设项目时都能被正常召回。**
+四条合起来的目的是同一件事：**让项目记忆在设了项目、没设项目时都能被正常召回，且召回的结果不会被误读成别的会话正在进行的事。**
 
 ---
 
@@ -24,13 +25,13 @@ Patch set for [meow-memory](https://github.com/Phant0Meow/dsh-meow-memory), appl
 
 在你的 DSH profile 目录（例如 `E:\DSH ME\profiles\desktop`）里：
 
-1. 把 `patches/meow-memory@0.33.2.patch` 复制到 profile 的 `patches/` 目录下。
+1. 把 `patches/meow-memory@0.33.3.patch` 复制到 profile 的 `patches/` 目录下。
 
 2. 在 profile 的 `pnpm-workspace.yaml` 末尾加上（pnpm 12 把 patch 声明放在这里；pnpm 11 及更早放在 `package.json` 的 `pnpm.patchedDependencies`）：
 
 ```yaml
 patchedDependencies:
-  meow-memory@0.33.2: patches/meow-memory@0.33.2.patch
+  meow-memory@0.33.3: patches/meow-memory@0.33.3.patch
 ```
 
 3. 安装：
@@ -42,8 +43,8 @@ pnpm install
 4. 验证补丁确实生效：
 
 ```sh
-grep -c 'core-memory-patch' node_modules/meow-memory/lib/index.js   # 应该是 2
-grep -c 'hitTopK: 4,' node_modules/meow-memory/lib/index.js        # 应该是 2
+grep -c 'core-memory-patch' node_modules/meow-memory/lib/index.js   # 应该是 4
+grep -c 'hitTopK: 4' node_modules/meow-memory/lib/index.js          # 应该是 2
 ```
 
 打不上时 pnpm 会直接报错（提示 patch 与包内容不匹配），不会静默跳过。
@@ -54,7 +55,7 @@ grep -c 'hitTopK: 4,' node_modules/meow-memory/lib/index.js        # 应该是 2
 
 | 补丁 | 对应 meow-memory 版本 | 状态 |
 |---|---|---|
-| `meow-memory@0.33.2.patch` | 0.33.2 | 已验证：`pnpm install` 后自动应用 |
+| `meow-memory@0.33.3.patch` | 0.33.3 | 已验证：`pnpm install` 后自动应用，运行时 `hitTopK=4` |
 
 上游出新版本时，这个 patch 大概率会冲突（行号变了）。冲突是好事，说明该重新看一遍这些改动上游有没有收。
 
@@ -62,7 +63,7 @@ grep -c 'hitTopK: 4,' node_modules/meow-memory/lib/index.js        # 应该是 2
 
 ## 为什么不用 fork
 
-fork 要跟着上游维护整份源码；patch 只描述差异，上游一改就能看出来哪里冲突了。对三个小改动来说，patch 的维护成本低得多。
+fork 要跟着上游维护整份源码；patch 只描述差异，上游一改就能看出来哪里冲突了。对四个小改动来说，patch 的维护成本低得多。
 
 ## 为什么不用 `pnpm patch` 之外的办法
 
